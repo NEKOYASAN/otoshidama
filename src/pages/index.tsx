@@ -7,6 +7,8 @@ import {
   Input,
   InputGroup,
   InputLeftAddon,
+  InputRightAddon,
+  InputRightElement,
   NumberInput,
   NumberInputField,
   Text,
@@ -15,10 +17,9 @@ import {
 import { useEffect, useState } from 'react';
 import { TwitterIcon } from '~/components/icons/TwitterIcon';
 import { GitHubIcon } from '~/components/icons/GitHubIcon';
-import type { Provider } from '@ethersproject/abstract-provider';
 import { ethers } from 'ethers';
 import { useRouter } from 'next/router';
-import { formatUnits } from 'ethers/lib/utils';
+import { formatUnits, parseUnits } from 'ethers/lib/utils';
 
 const Home: NextPage = () => {
   const [toAddress, setToAddress] = useState('');
@@ -53,7 +54,46 @@ const Home: NextPage = () => {
     }
     return undefined;
   };
-  const getJPYCBalance = async () => {};
+  const sendJPYC = async (address: string, amount: number) => {
+    if (isMetaMask) {
+      setIsWalletLoading(true);
+      // @ts-ignore
+      const { ethereum } = window;
+      const provider = new ethers.providers.Web3Provider(ethereum);
+      try {
+        const ABI = [
+          'function balanceOf(address owner) view returns (uint256)',
+          'function decimals() view returns (uint8)',
+          'function symbol() view returns (string)',
+          'function transfer(address to, uint amount) returns (bool)',
+          'event Transfer(address indexed from, address indexed to, uint amount)',
+        ];
+        const signer = provider.getSigner();
+        const senderAddress = await signer.getAddress();
+        // only eth
+        const tokenAddress = '0x2370f9d504c7a6e775bf6e14b3f12846b594cd53';
+        const contract = new ethers.Contract(tokenAddress, ABI, signer);
+        const decimals = await contract.decimals();
+        const tx = await contract.transfer(address, parseUnits(String(amount), 18));
+        await tx.wait();
+        const balance = await contract.balanceOf(senderAddress);
+        if (decimals !== 18) {
+          toast({
+            title: '何らかの問題が発生した可能性があります。',
+            description: 'Code: 18',
+            status: 'error',
+            duration: 5000,
+            isClosable: true,
+            position: 'bottom-right',
+          });
+        }
+        setSenderBalance(Number(formatUnits(balance, decimals)));
+        setIsWalletLoading(false);
+      } catch (e) {
+        console.log(e);
+      }
+    }
+  };
   const onClickConnectWallet = async () => {
     if (isMetaMask) {
       setIsWalletLoading(true);
@@ -93,6 +133,7 @@ const Home: NextPage = () => {
         });
       }
       try {
+        const { chainId } = await provider.getNetwork();
         const signer = provider.getSigner();
         const address = await signer.getAddress();
         setSenderAddress(address);
@@ -175,8 +216,15 @@ const Home: NextPage = () => {
                 ? getChainObjectFromChainId(chainId)
                 : 'サポートしていないネットワークです'}
             </Button>
-            <Flex alignItems={'center'} rounded={'md'} backgroundColor={'gray.50'} gap={2} px={1}>
-              <Text fontWeight={'600'}>JPYC: {Math.round(senderBalance * 100000) / 100000}</Text>
+            <Flex
+              alignItems={'center'}
+              rounded={'md'}
+              backgroundColor={'gray.50'}
+              gap={2}
+              pl={3}
+              pr={1}
+            >
+              <Text fontWeight={'600'}>{Math.round(senderBalance * 100000) / 100000} JPYC</Text>
               <Button size={'sm'}>
                 {isSenderUsedENS ? senderAddress : senderAddress.slice(0, 12)}
               </Button>
@@ -206,26 +254,55 @@ const Home: NextPage = () => {
         <Heading as={'h1'}>お年玉</Heading>
         <Input
           placeholder={'渡す相手'}
-          disabled={!senderAddress || !senderAddress.length}
+          disabled={!senderAddress || !senderAddress.length || isWalletLoading}
           value={toAddress}
           onChange={(event) => {
             setToAddress(event.target.value);
           }}
         />
-        <InputGroup>
-          <InputLeftAddon>&yen;</InputLeftAddon>
-          <NumberInput
-            placeholder={'包む金額'}
-            disabled={!senderAddress || !senderAddress.length}
-            value={sendAmount}
-            onChange={(_, inputAmount) => {
-              setSendAmount(inputAmount);
-            }}
-          >
-            <NumberInputField roundedStart={0} />
-          </NumberInput>
-        </InputGroup>
-        <Button colorScheme={'teal'} disabled={!senderAddress || !senderAddress.length}>
+        <Flex flexDirection={'column'} gap={1}>
+          <InputGroup>
+            <NumberInput
+              placeholder={'包む金額'}
+              disabled={!senderAddress || !senderAddress.length || isWalletLoading}
+              value={sendAmount}
+              onChange={(_, inputAmount) => {
+                if (inputAmount) {
+                  setSendAmount(inputAmount);
+                } else {
+                  setSendAmount(0);
+                }
+              }}
+            >
+              <NumberInputField roundedEnd={0} />
+            </NumberInput>
+            <InputRightAddon>JPYC</InputRightAddon>
+          </InputGroup>
+          {!senderAddress || !senderAddress.length || isWalletLoading ? (
+            <Flex height={'1.5rem'} />
+          ) : (
+            <Flex justifyContent={'space-between'}>
+              <Text fontSize={'sm'}>残高: {senderBalance} JPYC</Text>
+              <Button
+                h="1.5rem"
+                size="sm"
+                onClick={() => {
+                  setSendAmount(senderBalance);
+                }}
+              >
+                max
+              </Button>
+            </Flex>
+          )}
+        </Flex>
+        <Button
+          colorScheme={'teal'}
+          disabled={!senderAddress || !senderAddress.length || isWalletLoading}
+          isLoading={isWalletLoading}
+          onClick={() => {
+            sendJPYC(toAddress, sendAmount);
+          }}
+        >
           お金をつつんで送る
         </Button>
       </Flex>
