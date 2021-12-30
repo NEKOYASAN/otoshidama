@@ -18,16 +18,17 @@ import { GitHubIcon } from '~/components/icons/GitHubIcon';
 import type { Provider } from '@ethersproject/abstract-provider';
 import { ethers } from 'ethers';
 import { useRouter } from 'next/router';
+import { formatUnits } from 'ethers/lib/utils';
 
 const Home: NextPage = () => {
   const [toAddress, setToAddress] = useState('');
   const [sendAmount, setSendAmount] = useState(0);
   const [isMetaMask, setIsMetaMask] = useState(false);
   const [isWalletLoading, setIsWalletLoading] = useState(false);
-  const [etherProvider, setEtherProvider] = useState<Provider | undefined>(undefined);
   const [chainId, setChainId] = useState<number>(0);
   const [senderAddress, setSenderAddress] = useState('');
   const [isSenderUsedENS, setIsSenderUsedENS] = useState(false);
+  const [senderBalance, setSenderBalance] = useState(0);
   const toast = useToast();
   const router = useRouter();
   useEffect(() => {
@@ -52,6 +53,7 @@ const Home: NextPage = () => {
     }
     return undefined;
   };
+  const getJPYCBalance = async () => {};
   const onClickConnectWallet = async () => {
     if (isMetaMask) {
       setIsWalletLoading(true);
@@ -60,7 +62,6 @@ const Home: NextPage = () => {
       const provider = new ethers.providers.Web3Provider(ethereum);
       try {
         await provider.send('eth_requestAccounts', []);
-        setEtherProvider(provider);
       } catch (e) {
         console.error(e);
         toast({
@@ -103,7 +104,6 @@ const Home: NextPage = () => {
             setIsSenderUsedENS(true);
           }
         }
-        setIsWalletLoading(false);
       } catch (e) {
         console.error(e);
         toast({
@@ -115,9 +115,40 @@ const Home: NextPage = () => {
           position: 'bottom-right',
         });
       }
+      try {
+        const ABI = [
+          'function balanceOf(address owner) view returns (uint256)',
+          'function decimals() view returns (uint8)',
+          'function symbol() view returns (string)',
+          'function transfer(address to, uint amount) returns (bool)',
+          'event Transfer(address indexed from, address indexed to, uint amount)',
+        ];
+        const signer = provider.getSigner();
+        const address = await signer.getAddress();
+        // only eth
+        const tokenAddress = '0x2370f9d504c7a6e775bf6e14b3f12846b594cd53';
+        const readOnlyContract = new ethers.Contract(tokenAddress, ABI, provider);
+        const decimals = await readOnlyContract.decimals();
+
+        const balance = await readOnlyContract.balanceOf(address);
+        if (decimals !== 18) {
+          toast({
+            title: '何らかの問題が発生した可能性があります。',
+            description: 'Code: 18',
+            status: 'error',
+            duration: 5000,
+            isClosable: true,
+            position: 'bottom-right',
+          });
+        }
+        setSenderBalance(Number(formatUnits(balance, decimals)));
+        setIsWalletLoading(false);
+      } catch (e) {
+        console.log(e);
+      }
     }
     return () => {
-      if (etherProvider) {
+      if (chainId !== 0) {
         // @ts-ignore
         window.ethereum.off('chainChanged');
       }
@@ -144,7 +175,12 @@ const Home: NextPage = () => {
                 ? getChainObjectFromChainId(chainId)
                 : 'サポートしていないネットワークです'}
             </Button>
-            <Button>{isSenderUsedENS ? senderAddress : senderAddress.slice(0, 12)}</Button>
+            <Flex alignItems={'center'} rounded={'md'} backgroundColor={'gray.50'} gap={2} px={1}>
+              <Text fontWeight={'600'}>JPYC: {Math.round(senderBalance * 100000) / 100000}</Text>
+              <Button size={'sm'}>
+                {isSenderUsedENS ? senderAddress : senderAddress.slice(0, 12)}
+              </Button>
+            </Flex>
           </Flex>
         ) : (
           <Button
