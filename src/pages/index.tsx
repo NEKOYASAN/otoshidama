@@ -32,25 +32,39 @@ const Home: NextPage = () => {
   const [senderBalance, setSenderBalance] = useState(0);
   const toast = useToast();
   const router = useRouter();
+  const ChainList: {
+    [key: number]: {
+      chainName: string;
+      tokenAddress: string;
+    };
+  } = {
+    1: {
+      chainName: 'Ethereum',
+      tokenAddress: '0x2370f9d504c7a6e775bf6e14b3f12846b594cd53',
+    },
+    100: {
+      chainName: 'xDAI',
+      tokenAddress: '0x417602f4fbdd471a431ae29fb5fe0a681964c11b',
+    },
+    137: {
+      chainName: 'Polygon',
+      tokenAddress: '0x6ae7dfc73e0dde2aa99ac063dcf7e8a63265108c',
+    },
+  };
+
   useEffect(() => {
     // @ts-ignore
     setIsMetaMask(Boolean(window.ethereum && window.ethereum.isMetaMask));
   }, []);
   const getChainObjectFromChainId = (chainId: number): string | undefined => {
-    const ChainList: {
-      [key: number]: {
-        chainName: string;
-      };
-    } = {
-      1: {
-        chainName: 'Ethereum',
-      },
-      137: {
-        chainName: 'Polygon',
-      },
-    };
     if (ChainList[chainId]) {
       return ChainList[chainId].chainName;
+    }
+    return undefined;
+  };
+  const getTokenAddressFromChainId = (chainId: number): string | undefined => {
+    if (ChainList[chainId]) {
+      return ChainList[chainId].tokenAddress;
     }
     return undefined;
   };
@@ -61,6 +75,7 @@ const Home: NextPage = () => {
       const { ethereum } = window;
       const provider = new ethers.providers.Web3Provider(ethereum);
       try {
+        const { chainId } = await provider.getNetwork();
         const ABI = [
           'function balanceOf(address owner) view returns (uint256)',
           'function decimals() view returns (uint8)',
@@ -70,27 +85,46 @@ const Home: NextPage = () => {
         ];
         const signer = provider.getSigner();
         const senderAddress = await signer.getAddress();
-        // only eth
-        const tokenAddress = '0x2370f9d504c7a6e775bf6e14b3f12846b594cd53';
-        const contract = new ethers.Contract(tokenAddress, ABI, signer);
-        const decimals = await contract.decimals();
-        const tx = await contract.transfer(address, parseUnits(String(amount), 18));
-        await tx.wait();
-        const balance = await contract.balanceOf(senderAddress);
-        if (decimals !== 18) {
+        const tokenAddress = getTokenAddressFromChainId(chainId);
+        if (tokenAddress) {
+          const contract = new ethers.Contract(tokenAddress, ABI, signer);
+          const decimals = await contract.decimals();
+          const tx = await contract.transfer(address, parseUnits(String(amount), 18));
+          await tx.wait();
+          const contractRO = new ethers.Contract(tokenAddress, ABI, provider);
+          const balance = await contractRO.balanceOf(senderAddress);
+          if (decimals !== 18) {
+            toast({
+              title: '何らかの問題が発生した可能性があります。',
+              description: 'Code: 18',
+              status: 'error',
+              duration: 5000,
+              isClosable: true,
+              position: 'bottom-right',
+            });
+          }
+          setSenderBalance(Number(formatUnits(balance, decimals)));
+          router.reload();
+        } else {
           toast({
-            title: '何らかの問題が発生した可能性があります。',
-            description: 'Code: 18',
+            title: '未対応のネットワークの可能性があります。',
             status: 'error',
             duration: 5000,
             isClosable: true,
             position: 'bottom-right',
           });
         }
-        setSenderBalance(Number(formatUnits(balance, decimals)));
         setIsWalletLoading(false);
       } catch (e) {
         console.log(e);
+        toast({
+          title: '何らかの問題が発生した可能性があります。',
+          description: 'ENS名を使用している場合使用せずにお試しください。',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+          position: 'bottom-right',
+        });
       }
     }
   };
@@ -164,25 +198,36 @@ const Home: NextPage = () => {
           'function transfer(address to, uint amount) returns (bool)',
           'event Transfer(address indexed from, address indexed to, uint amount)',
         ];
+        const { chainId } = await provider.getNetwork();
         const signer = provider.getSigner();
         const address = await signer.getAddress();
-        // only eth
-        const tokenAddress = '0x2370f9d504c7a6e775bf6e14b3f12846b594cd53';
-        const readOnlyContract = new ethers.Contract(tokenAddress, ABI, provider);
-        const decimals = await readOnlyContract.decimals();
+        const tokenAddress = getTokenAddressFromChainId(chainId);
+        if (tokenAddress) {
+          console.log(tokenAddress);
+          const readOnlyContract = new ethers.Contract(tokenAddress, ABI, provider);
+          const decimals = await readOnlyContract.decimals();
 
-        const balance = await readOnlyContract.balanceOf(address);
-        if (decimals !== 18) {
+          const balance = await readOnlyContract.balanceOf(address);
+          if (decimals !== 18) {
+            toast({
+              title: '何らかの問題が発生した可能性があります。',
+              description: 'Code: 18',
+              status: 'error',
+              duration: 5000,
+              isClosable: true,
+              position: 'bottom-right',
+            });
+          }
+          setSenderBalance(Number(formatUnits(balance, decimals)));
+        } else {
           toast({
-            title: '何らかの問題が発生した可能性があります。',
-            description: 'Code: 18',
+            title: '未対応のネットワークの可能性があります。',
             status: 'error',
             duration: 5000,
             isClosable: true,
             position: 'bottom-right',
           });
         }
-        setSenderBalance(Number(formatUnits(balance, decimals)));
         setIsWalletLoading(false);
       } catch (e) {
         console.log(e);
@@ -266,6 +311,8 @@ const Home: NextPage = () => {
               placeholder={'包む金額'}
               disabled={!senderAddress || !senderAddress.length || isWalletLoading}
               value={sendAmount}
+              min={0}
+              max={senderBalance}
               onChange={(_, inputAmount) => {
                 if (inputAmount) {
                   setSendAmount(inputAmount);
@@ -297,7 +344,14 @@ const Home: NextPage = () => {
         </Flex>
         <Button
           colorScheme={'teal'}
-          disabled={!senderAddress || !senderAddress.length || isWalletLoading}
+          disabled={
+            !senderAddress ||
+            !senderAddress.length ||
+            isWalletLoading ||
+            !toAddress ||
+            !toAddress.length ||
+            !sendAmount
+          }
           isLoading={isWalletLoading}
           onClick={() => {
             sendJPYC(toAddress, sendAmount);
@@ -314,7 +368,15 @@ const Home: NextPage = () => {
         py={2}
         px={3}
       >
-        <Text>ɴᴇᴋᴏʏᴀsᴀɴ</Text>
+        <Button
+          size={'sm'}
+          variant={'transparent'}
+          onClick={() => {
+            setToAddress('0x76D378627AC7a5F42418355418F28af08D6051B0');
+          }}
+        >
+          ɴᴇᴋᴏʏᴀsᴀɴに送る
+        </Button>
         <Flex gap={2}>
           <IconButton
             aria-label={'Twitter'}
